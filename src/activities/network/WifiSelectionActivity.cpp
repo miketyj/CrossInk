@@ -20,8 +20,27 @@
 #include "fontIds.h"
 
 #ifdef HOMELAB_STATS
+#include <Epub.h>
+#include <FsHelpers.h>
+#include <Xtc.h>
+
+#include <cstdio>
+#include <utility>
+
+#include "RecentBooksStore.h"
+#include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
+#include "activities/reader/ReadingStatsUtils.h"
 #include "homelab/StatsPush.h"
+
+namespace {
+std::string formatHomelabDate(const ReadingStatsDate& d) {
+  if (!d.isValid()) return std::string();
+  char buf[11];
+  std::snprintf(buf, sizeof(buf), "%04u-%02u-%02u", (unsigned)d.year, (unsigned)d.month, (unsigned)d.day);
+  return std::string(buf);
+}
+}  // namespace
 #endif
 
 namespace {
@@ -486,16 +505,53 @@ void WifiSelectionActivity::checkConnectionStatus() {
 
 #ifdef HOMELAB_STATS
     // WiFi is up — opportunistically push reading stats to the homelab collector.
-    // Load under the SPI/render lock, then POST outside it so slow network I/O
-    // never blocks rendering. This is the reliable trigger: CrossInk keeps WiFi
-    // off during reading, so a connect event (any reason) is when we can sync.
+    // Gather everything (global counters, current streak, per-book bookshelf)
+    // under the SPI/render lock, then POST outside it so slow network I/O never
+    // blocks rendering. This is the reliable trigger: CrossInk keeps WiFi off
+    // during reading, so a connect event (any reason) is when we can sync.
     {
       GlobalReadingStats hlStats;
+      uint16_t hlStreak = 0;
+      std::vector<homelab::BookStat> hlBooks;
       {
         RenderLock lock(*this);
         hlStats = GlobalReadingStats::load();
+
+        ReadingStatsDateTime nowDt;
+        if (getCurrentLocalReadingStatsDateTime(nowDt)) {
+          hlStreak = hlStats.currentReadingStreak(&nowDt.date);
+        }
+
+        for (const RecentBook& rb : RECENT_BOOKS.getBooks()) {
+          std::string cachePath;
+          if (FsHelpers::hasEpubExtension(rb.path)) {
+            cachePath = Epub::cachePathForFilePath(rb.path, "/.crosspoint");
+          } else if (FsHelpers::hasXtcExtension(rb.path)) {
+            cachePath = Xtc(rb.path, "/.crosspoint").getCachePath();
+          }
+          if (cachePath.empty()) continue;
+
+          const BookReadingStats bs = BookReadingStats::load(cachePath);
+          if (bs.totalReadingSeconds == 0 && bs.totalPagesTurned == 0 && bs.sessionCount == 0 &&
+              !bs.isCompleted) {
+            continue;  // skip recent books with no reading activity
+          }
+
+          homelab::BookStat out;
+          out.title = rb.title;
+          out.author = rb.author;
+          out.seconds = bs.totalReadingSeconds;
+          out.pages = bs.totalPagesTurned;
+          out.sessions = bs.sessionCount;
+          out.completed = bs.isCompleted;
+          out.avgSecPerPage = bs.avgSecondsPerForwardPage;
+          out.estLeftSeconds = bs.estimatedTimeLeftSeconds;
+          out.startDate = formatHomelabDate(bs.startDate);
+          out.finishedDate = formatHomelabDate(bs.finishedDate);
+          hlBooks.push_back(std::move(out));
+        }
       }
-      homelab::pushGlobalStats(hlStats);
+      homelab::pushGlobalStats(hlStats, hlStreak, hlBooks);
     }
 #endif
 

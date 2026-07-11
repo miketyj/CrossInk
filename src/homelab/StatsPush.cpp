@@ -52,7 +52,8 @@ String deviceId() {
 
 namespace homelab {
 
-void pushGlobalStats(const GlobalReadingStats& stats) {
+void pushGlobalStats(const GlobalReadingStats& stats, const uint16_t currentStreak,
+                     const std::vector<BookStat>& books) {
   if (WiFi.status() != WL_CONNECTED) return;  // never wake the radio
 
   JsonDocument doc;
@@ -64,11 +65,28 @@ void pushGlobalStats(const GlobalReadingStats& stats) {
   doc["total_pages_turned"] = stats.totalPagesTurned;
   doc["completed_books"] = stats.completedBooks;
   doc["longest_streak"] = stats.longestReadingStreak;
+  doc["current_streak"] = currentStreak;
   {
     JsonArray tod = doc["time_of_day_seconds"].to<JsonArray>();
     for (uint32_t v : stats.timeOfDaySeconds) tod.add(v);
     JsonArray dow = doc["day_of_week_seconds"].to<JsonArray>();
     for (uint32_t v : stats.dayOfWeekSeconds) dow.add(v);
+  }
+  {
+    JsonArray arr = doc["books"].to<JsonArray>();
+    for (const BookStat& b : books) {
+      JsonObject o = arr.add<JsonObject>();
+      o["title"] = b.title;
+      o["author"] = b.author;
+      o["seconds"] = b.seconds;
+      o["pages"] = b.pages;
+      o["sessions"] = b.sessions;
+      o["completed"] = b.completed;
+      o["avg_sec_per_page"] = b.avgSecPerPage;
+      o["est_left_seconds"] = b.estLeftSeconds;
+      o["start_date"] = b.startDate;
+      o["finished_date"] = b.finishedDate;
+    }
   }
 
   String body;
@@ -86,9 +104,11 @@ void pushGlobalStats(const GlobalReadingStats& stats) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Signature", sig);
   const int code = http.POST(body);
-  LOG_DBG("HLSTATS", "POST %s -> %d", HOMELAB_STATS_URL, code);
+  LOG_DBG("HLSTATS", "POST %s (%u books) -> %d", HOMELAB_STATS_URL, (unsigned)books.size(), code);
   http.end();
 }
+
+void pushGlobalStats(const GlobalReadingStats& stats) { pushGlobalStats(stats, 0, {}); }
 
 }  // namespace homelab
 
