@@ -19,6 +19,11 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+#ifdef HOMELAB_STATS
+#include "activities/reader/GlobalReadingStats.h"
+#include "homelab/StatsPush.h"
+#endif
+
 namespace {
 
 #ifndef SIMULATOR
@@ -478,6 +483,21 @@ void WifiSelectionActivity::checkConnectionStatus() {
       RenderLock lock(*this);
       WIFI_STORE.setLastConnectedSsid(selectedSSID);
     }
+
+#ifdef HOMELAB_STATS
+    // WiFi is up — opportunistically push reading stats to the homelab collector.
+    // Load under the SPI/render lock, then POST outside it so slow network I/O
+    // never blocks rendering. This is the reliable trigger: CrossInk keeps WiFi
+    // off during reading, so a connect event (any reason) is when we can sync.
+    {
+      GlobalReadingStats hlStats;
+      {
+        RenderLock lock(*this);
+        hlStats = GlobalReadingStats::load();
+      }
+      homelab::pushGlobalStats(hlStats);
+    }
+#endif
 
     // If we entered a new password, ask if user wants to save it
     // Otherwise, immediately complete so parent can start web server
