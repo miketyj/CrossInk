@@ -29,6 +29,7 @@
 
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
+#include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "homelab/StatsPush.h"
@@ -39,6 +40,24 @@ std::string formatHomelabDate(const ReadingStatsDate& d) {
   char buf[11];
   std::snprintf(buf, sizeof(buf), "%04u-%02u-%02u", (unsigned)d.year, (unsigned)d.month, (unsigned)d.day);
   return std::string(buf);
+}
+
+// Per-book reading progress percent (0..100), or -1 if unknown. Mirrors the
+// home screen's progress ring; a light epub load (no CSS/build) + saved
+// reading position. Only epubs expose page-based progress.
+int bookProgressPercent(const std::string& path) {
+  if (!FsHelpers::hasEpubExtension(path)) return -1;
+  Epub epub(path, "/.crosspoint");
+  if (!epub.load(false, true)) return -1;
+  EpubReaderUtils::Progress progress;
+  if (!EpubReaderUtils::loadProgress(epub, progress, "HL")) return -1;
+  if (!progress.hasPageCount || progress.pageCount <= 0) return -1;
+  const float chapterProgress =
+      static_cast<float>(progress.pageNumber + 1) / static_cast<float>(progress.pageCount);
+  float pct = epub.calculateProgress(progress.spineIndex, chapterProgress) * 100.0f;
+  if (pct < 0.0f) pct = 0.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  return static_cast<int>(pct + 0.5f);
 }
 }  // namespace
 #endif
@@ -546,6 +565,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
           out.completed = bs.isCompleted;
           out.avgSecPerPage = bs.avgSecondsPerForwardPage;
           out.estLeftSeconds = bs.estimatedTimeLeftSeconds;
+          out.progressPercent = bookProgressPercent(rb.path);
           out.startDate = formatHomelabDate(bs.startDate);
           out.finishedDate = formatHomelabDate(bs.finishedDate);
           hlBooks.push_back(std::move(out));

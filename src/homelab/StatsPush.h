@@ -30,6 +30,7 @@ struct BookStat {
   uint32_t estLeftSeconds = 0;
   uint16_t sessions = 0;
   uint16_t avgSecPerPage = 0;
+  int progressPercent = -1;  // 0..100, or -1 if unknown (e.g. no page count / non-epub)
   bool completed = false;
 };
 

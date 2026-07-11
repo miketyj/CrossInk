@@ -84,6 +84,7 @@ void pushGlobalStats(const GlobalReadingStats& stats, const uint16_t currentStre
       o["completed"] = b.completed;
       o["avg_sec_per_page"] = b.avgSecPerPage;
       o["est_left_seconds"] = b.estLeftSeconds;
+      if (b.progressPercent >= 0) o["progress_percent"] = b.progressPercent;
       o["start_date"] = b.startDate;
       o["finished_date"] = b.finishedDate;
     }
