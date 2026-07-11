@@ -9,6 +9,10 @@
 #include <limits>
 #include <string>
 
+#ifdef HOMELAB_STATS
+#include "../../homelab/StatsPush.h"
+#endif
+
 namespace {
 enum class StatsLoadResult : uint8_t { Ok, Invalid, NewerFormat };
 
@@ -366,7 +370,12 @@ void GlobalReadingStats::save() const {
     LOG_ERR("GSTATS", "Refusing to overwrite on-disk stats after newer-format file was detected");
     return;
   }
-  saveToFile(*this, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH);
+  const bool ok = saveToFile(*this, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH);
+#ifdef HOMELAB_STATS
+  if (ok) homelab::pushGlobalStats(*this);  // best-effort push after durable write
+#else
+  (void)ok;
+#endif
 }
 
 bool GlobalReadingStats::resetLocal() { return saveToFile(GlobalReadingStats{}, GLOBAL_STATS_PATH, nullptr); }
